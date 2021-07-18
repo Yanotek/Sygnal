@@ -1,0 +1,21 @@
+version: '3.7'
+
+
+volumes:
+  sygnal-data:
+    name: sygnal-data
+
+
+services:
+  sygnal:
+    container_name: 'sygnal'
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    restart: always
+    volumes:
+      - sygnal-data:/data
+    environment:
+      - SYGNAL_CONF=/data/sygnal.yaml
+    ports:
+      - "5001:5000"

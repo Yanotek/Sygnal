@@ -3,6 +3,7 @@ sygnal.yaml
 var/
 sygnal.pid
 sygnal.db
+sygnal.log
 _trial_temp*
 .coverage*
 

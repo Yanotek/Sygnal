@@ -363,6 +363,16 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             body = self.base_request_body.copy()
             body["data"] = data
             body["priority"] = "normal" if n.prio == "low" else "high"
+            body["notification"] = {
+                'title': 'New message',
+                'body': 'You received new message.',
+            }
+            content_obj = data.get('content')
+            if content_obj and content_obj.get('msgtype') == 'm.text':
+                body['notification']['body'] = content_obj.get('body')
+
+            if data.get('sender_display_name'):
+                body['notification']['title'] += f' from {data.get("sender_display_name")}'
 
             for retry_number in range(0, MAX_TRIES):
                 mapped_pushkeys = [reg_id_mappings[pk] for pk in pushkeys]
