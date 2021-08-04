@@ -371,6 +371,19 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             if content_obj and content_obj.get('msgtype') == 'm.text':
                 body['notification']['body'] = content_obj.get('body')
 
+            if data.get('sender_display_name'):
+                body['notification']['title'] = f'{data.get("sender_display_name")} sent you new encrypted message'
+
+            if data.get('room_id'):
+                body['android'] = {
+                    'collapseKey': data.get('room_id')
+                }
+                body['apns'] = {
+                    'headers': {
+                        "apns-collapse-id": data.get('room_id'),
+                    }
+                }
+
             for retry_number in range(0, MAX_TRIES):
                 mapped_pushkeys = [reg_id_mappings[pk] for pk in pushkeys]
 
