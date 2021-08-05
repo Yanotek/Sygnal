@@ -17,6 +17,7 @@
 import json
 import logging
 import time
+import firebase_admin
 from io import BytesIO
 
 from opentracing import logs, tags
@@ -25,6 +26,7 @@ from twisted.enterprise.adbapi import ConnectionPool
 from twisted.internet.defer import DeferredSemaphore
 from twisted.web.client import FileBodyProducer, HTTPConnectionPool, readBody
 from twisted.web.http_headers import Headers
+from firebase_admin import messaging
 
 from sygnal.exceptions import (
     NotificationDispatchException,
@@ -192,18 +194,10 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 for (reg_id, canonical_reg_id) in reg_id_mappings.items()
             }
 
-            inverse_reg_id_mappings = {v: k for (k, v) in reg_id_mappings.items()}
-
             data = GcmPushkin._build_data(n, device)
 
             if not data.get('event_id'):
                 return []
-
-            headers = {
-                b"User-Agent": ["sygnal"],
-                b"Content-Type": ["application/json"],
-                b"Authorization": ["key=%s" % (self.api_key,)],
-            }
 
             # count the number of remapped registration IDs in the request
             span_parent.set_tag(
@@ -211,86 +205,52 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 [k != v for (k, v) in reg_id_mappings.items()].count(True),
             )
 
-            # TODO: Implement collapse_key to queue only one message per room.
-            failed = []
+            # data=data,
+            message = messaging.Message(
+                notification=messaging.Notification(),
+                android=messaging.AndroidConfig(
+                    collapse_key=data.get('room_id')
+                ),
+                apns=messaging.APNSConfig(
+                    headers={
+                        'apns-collapse-id': data.get('room_id')
+                    }
+                )
+            )
 
-            body = self.base_request_body.copy()
-            body["data"] = data
-            body["priority"] = "normal" if n.prio == "low" else "high"
-            body["collapse_key"] = data.get('room_id')
-            body["notification"] = {
-                'body': 'You received new message.',
-            }
+            # TODO move to message --> body["priority"] = "normal" if n.prio == "low" else "high"
 
             content_obj = data.get('content')
             if content_obj and content_obj.get('msgtype') == 'm.text':
                 if data.get('sender_display_name'):
-                    body['notification']['body'] = f'{data.get("sender_display_name")} wrote: {content_obj.get("body")}'
+                    message.notification.body = f'{data.get("sender_display_name")} wrote: {content_obj.get("body")}'
                 else:
-                    body['notification']['body'] = content_obj.get('body')
+                    message.notification.body = content_obj.get('body')
             else:
                 if data.get('sender_display_name'):
-                    body['notification']['body'] = f'{data.get("sender_display_name")} sent you new encrypted message'
+                    message.notification.body = f'{data.get("sender_display_name")} sent you new encrypted message'
                 else:
-                    body['notification']['body'] = f'New encrypted message'
+                    message.notification.body = f'New encrypted message'
 
             if data.get('room_name') and data.get('room_name').startswith('@'):
-                body['notification']['title'] = data.get('room_name')
+                message.notification.title = data.get('room_name')
             else:
-                body['notification']['title'] = 'New message'
+                message.notification.title = 'New message'
+
+            mapped_push_keys = [reg_id_mappings[pk] for pk in pushkeys]
+
+            if len(pushkeys) == 1:
+                message.token = mapped_push_keys[0]
+            else:
+                message.tokens = mapped_push_keys
 
             log.info(f'Get message => {json.dumps(data)}')
 
-            for retry_number in range(0, MAX_TRIES):
-                mapped_pushkeys = [reg_id_mappings[pk] for pk in pushkeys]
+            response = messaging.send(message)
 
-                if len(pushkeys) == 1:
-                    body["to"] = mapped_pushkeys[0]
-                else:
-                    body["registration_ids"] = mapped_pushkeys
+            print('Successfully sent message:', response)
 
-                log.info("Sending (attempt %i) => %r", retry_number, mapped_pushkeys)
-
-                try:
-                    span_tags = {"retry_num": retry_number}
-
-                    with self.sygnal.tracer.start_span(
-                        "gcm_dispatch_try", tags=span_tags, child_of=span_parent
-                    ) as span:
-                        new_failed, new_pushkeys = await self._request_dispatch(
-                            n, log, body, headers, mapped_pushkeys, span
-                        )
-                    pushkeys = new_pushkeys
-                    failed += [
-                        inverse_reg_id_mappings[canonical_pk]
-                        for canonical_pk in new_failed
-                    ]
-                    if len(pushkeys) == 0:
-                        break
-                except TemporaryNotificationDispatchException as exc:
-                    retry_delay = RETRY_DELAY_BASE * (2 ** retry_number)
-                    if exc.custom_retry_delay is not None:
-                        retry_delay = exc.custom_retry_delay
-
-                    log.warning(
-                        "Temporary failure, will retry in %d seconds",
-                        retry_delay,
-                        exc_info=True,
-                    )
-
-                    span_parent.log_kv(
-                        {"event": "temporary_fail", "retrying_in": retry_delay}
-                    )
-
-                    await twisted_sleep(
-                        retry_delay, twisted_reactor=self.sygnal.reactor
-                    )
-
-            if len(pushkeys) > 0:
-                log.info("Gave up retrying reg IDs: %r", pushkeys)
-            # Count the number of failed devices.
-            span_parent.set_tag("gcm_num_failed", len(failed))
-            return failed
+            return []
 
     @staticmethod
     def _build_data(n, device):
@@ -336,156 +296,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             data["missed_calls"] = n.counts.missed_calls
 
         return data
-
-    async def _request_dispatch(self, n, log, body, headers, pushkeys, span):
-        poke_start_time = time.time()
-
-        failed = []
-
-        response, response_text = await self._perform_http_request(body, headers)
-
-        RESPONSE_STATUS_CODES_COUNTER.labels(
-            pushkin=self.name, code=response.code
-        ).inc()
-
-        log.debug("GCM request took %f seconds", time.time() - poke_start_time)
-
-        span.set_tag(tags.HTTP_STATUS_CODE, response.code)
-
-        if 500 <= response.code < 600:
-            log.debug("%d from server, waiting to try again", response.code)
-
-            retry_after = None
-
-            for header_value in response.headers.getRawHeaders(
-                b"retry-after", default=[]
-            ):
-                retry_after = int(header_value)
-                span.log_kv({"event": "gcm_retry_after", "retry_after": retry_after})
-
-            raise TemporaryNotificationDispatchException(
-                "GCM server error, hopefully temporary.", custom_retry_delay=retry_after
-            )
-        elif response.code == 400:
-            log.error(
-                "%d from server, we have sent something invalid! Error: %r",
-                response.code,
-                response_text,
-            )
-            # permanent failure: give up
-            raise NotificationDispatchException("Invalid request")
-        elif response.code == 401:
-            log.error(
-                "401 from server! Our API key is invalid? Error: %r", response_text
-            )
-            # permanent failure: give up
-            raise NotificationDispatchException("Not authorised to push")
-        elif response.code == 404:
-            # assume they're all failed
-            log.info("Reg IDs %r get 404 response; assuming unregistered", pushkeys)
-            return pushkeys, []
-        elif 200 <= response.code < 300:
-            try:
-                resp_object = json_decoder.decode(response_text)
-            except ValueError:
-                raise NotificationDispatchException("Invalid JSON response from GCM.")
-            if "results" not in resp_object:
-                log.error(
-                    "%d from server but response contained no 'results' key: %r",
-                    response.code,
-                    response_text,
-                )
-            if len(resp_object["results"]) < len(pushkeys):
-                log.error(
-                    "Sent %d notifications but only got %d responses!",
-                    len(n.devices),
-                    len(resp_object["results"]),
-                )
-                span.log_kv(
-                    {
-                        logs.EVENT: "gcm_response_mismatch",
-                        "num_devices": len(n.devices),
-                        "num_results": len(resp_object["results"]),
-                    }
-                )
-
-            # determine which pushkeys to retry or forget about
-            new_pushkeys = []
-            for i, result in enumerate(resp_object["results"]):
-                span.set_tag("gcm_regid_updated", "registration_id" in result)
-                if "registration_id" in result:
-                    await self.canonical_reg_id_store.set_canonical_id(
-                        pushkeys[i], result["registration_id"]
-                    )
-                if "error" in result:
-                    log.warning(
-                        "Error for pushkey %s: %s", pushkeys[i], result["error"]
-                    )
-                    span.set_tag("gcm_error", result["error"])
-                    if result["error"] in BAD_PUSHKEY_FAILURE_CODES:
-                        log.info(
-                            "Reg ID %r has permanently failed with code %r: "
-                            "rejecting upstream",
-                            pushkeys[i],
-                            result["error"],
-                        )
-                        failed.append(pushkeys[i])
-                    elif result["error"] in BAD_MESSAGE_FAILURE_CODES:
-                        log.info(
-                            "Message for reg ID %r has permanently failed with code %r",
-                            pushkeys[i],
-                            result["error"],
-                        )
-                    else:
-                        log.info(
-                            "Reg ID %r has temporarily failed with code %r",
-                            pushkeys[i],
-                            result["error"],
-                        )
-                        new_pushkeys.append(pushkeys[i])
-            return failed, new_pushkeys
-        else:
-            raise NotificationDispatchException(
-                f"Unknown GCM response code {response.code}"
-            )
-
-    async def _perform_http_request(self, body, headers):
-        """
-        Perform an HTTP request to the FCM server with the body and headers
-        specified.
-        Args:
-            body (nested dict): Body. Will be JSON-encoded.
-            headers (Headers): HTTP Headers.
-
-        Returns:
-
-        """
-        body_producer = FileBodyProducer(BytesIO(json.dumps(body).encode()))
-
-        # we use the semaphore to actually limit the number of concurrent
-        # requests, since the HTTPConnectionPool will actually just lead to more
-        # requests being created but not pooled – it does not perform limiting.
-        with QUEUE_TIME_HISTOGRAM.time():
-            with PENDING_REQUESTS_GAUGE.track_inprogress():
-                await self.connection_semaphore.acquire()
-
-        try:
-            with SEND_TIME_HISTOGRAM.time():
-                with ACTIVE_REQUESTS_GAUGE.track_inprogress():
-                    response = await self.http_agent.request(
-                        b"POST",
-                        GCM_URL,
-                        headers=Headers(headers),
-                        bodyProducer=body_producer,
-                    )
-                    response_text = (await readBody(response)).decode()
-        except Exception as exception:
-            raise TemporaryNotificationDispatchException(
-                "GCM request failure"
-            ) from exception
-        finally:
-            self.connection_semaphore.release()
-        return response, response_text
 
 
 class CanonicalRegIdStore(object):

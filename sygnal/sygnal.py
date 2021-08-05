@@ -21,6 +21,7 @@ import logging.config
 import os
 import sys
 
+import firebase_admin
 import opentracing
 import prometheus_client
 import yaml
@@ -144,6 +145,8 @@ class Sygnal(object):
                 raise RuntimeError(
                     "Unknown OpenTracing implementation: %s.", tracecfg["impl"]
                 )
+
+        firebase_admin.initialize_app()
 
         db_name = config["database"]["name"]
 

@@ -17,5 +17,6 @@ services:
       - sygnal-data:/data
     environment:
       - SYGNAL_CONF=/data/sygnal.yaml
+      - GOOGLE_APPLICATION_CREDENTIALS=/data/pocketnet-firebase-adminsdk.json
     ports:
       - "5001:5000"
