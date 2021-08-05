@@ -163,43 +163,179 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
         return cls(name, sygnal, config, canonical_reg_id_store)
 
-    async def _perform_http_request(self, body, headers):
+    async def _dispatch_notification_unlimited(self, n, device, context):
+        log = NotificationLoggerAdapter(logger, {"request_id": context.request_id})
+
+        pushkeys = [
+            device.pushkey for device in n.devices if device.app_id == self.name
+        ]
+        # Resolve canonical IDs for all pushkeys
+
+        if pushkeys[0] != device.pushkey:
+            # Only send notifications once, to all devices at once.
+            return []
+
+        # The pushkey is kind of secret because you can use it to send push
+        # to someone.
+        # span_tags = {"pushkeys": pushkeys}
+        span_tags = {"gcm_num_devices": len(pushkeys)}
+
+        with self.sygnal.tracer.start_span(
+            "gcm_dispatch", tags=span_tags, child_of=context.opentracing_span
+        ) as span_parent:
+            reg_id_mappings = await self.canonical_reg_id_store.get_canonical_ids(
+                pushkeys
+            )
+
+            reg_id_mappings = {
+                reg_id: canonical_reg_id or reg_id
+                for (reg_id, canonical_reg_id) in reg_id_mappings.items()
+            }
+
+            inverse_reg_id_mappings = {v: k for (k, v) in reg_id_mappings.items()}
+
+            data = GcmPushkin._build_data(n, device)
+
+            if not data.get('event_id'):
+                return []
+
+            headers = {
+                b"User-Agent": ["sygnal"],
+                b"Content-Type": ["application/json"],
+                b"Authorization": ["key=%s" % (self.api_key,)],
+            }
+
+            # count the number of remapped registration IDs in the request
+            span_parent.set_tag(
+                "gcm_num_remapped_reg_ids_used",
+                [k != v for (k, v) in reg_id_mappings.items()].count(True),
+            )
+
+            # TODO: Implement collapse_key to queue only one message per room.
+            failed = []
+
+            body = self.base_request_body.copy()
+            body["data"] = data
+            body["priority"] = "normal" if n.prio == "low" else "high"
+            body["collapse_key"] = data.get('room_id')
+            body["notification"] = {
+                'body': 'You received new message.',
+            }
+
+            content_obj = data.get('content')
+            if content_obj and content_obj.get('msgtype') == 'm.text':
+                if data.get('sender_display_name'):
+                    body['notification']['body'] = f'{data.get("sender_display_name")} wrote: {content_obj.get("body")}'
+                else:
+                    body['notification']['body'] = content_obj.get('body')
+            else:
+                if data.get('sender_display_name'):
+                    body['notification']['body'] = f'{data.get("sender_display_name")} sent you new encrypted message'
+                else:
+                    body['notification']['body'] = f'New encrypted message'
+
+            if data.get('room_name') and data.get('room_name').startswith('@'):
+                body['notification']['title'] = data.get('room_name')
+            else:
+                body['notification']['title'] = 'New message'
+
+            log.info(f'Get message => {json.dumps(data)}')
+
+            for retry_number in range(0, MAX_TRIES):
+                mapped_pushkeys = [reg_id_mappings[pk] for pk in pushkeys]
+
+                if len(pushkeys) == 1:
+                    body["to"] = mapped_pushkeys[0]
+                else:
+                    body["registration_ids"] = mapped_pushkeys
+
+                log.info("Sending (attempt %i) => %r", retry_number, mapped_pushkeys)
+
+                try:
+                    span_tags = {"retry_num": retry_number}
+
+                    with self.sygnal.tracer.start_span(
+                        "gcm_dispatch_try", tags=span_tags, child_of=span_parent
+                    ) as span:
+                        new_failed, new_pushkeys = await self._request_dispatch(
+                            n, log, body, headers, mapped_pushkeys, span
+                        )
+                    pushkeys = new_pushkeys
+                    failed += [
+                        inverse_reg_id_mappings[canonical_pk]
+                        for canonical_pk in new_failed
+                    ]
+                    if len(pushkeys) == 0:
+                        break
+                except TemporaryNotificationDispatchException as exc:
+                    retry_delay = RETRY_DELAY_BASE * (2 ** retry_number)
+                    if exc.custom_retry_delay is not None:
+                        retry_delay = exc.custom_retry_delay
+
+                    log.warning(
+                        "Temporary failure, will retry in %d seconds",
+                        retry_delay,
+                        exc_info=True,
+                    )
+
+                    span_parent.log_kv(
+                        {"event": "temporary_fail", "retrying_in": retry_delay}
+                    )
+
+                    await twisted_sleep(
+                        retry_delay, twisted_reactor=self.sygnal.reactor
+                    )
+
+            if len(pushkeys) > 0:
+                log.info("Gave up retrying reg IDs: %r", pushkeys)
+            # Count the number of failed devices.
+            span_parent.set_tag("gcm_num_failed", len(failed))
+            return failed
+
+    @staticmethod
+    def _build_data(n, device):
         """
-        Perform an HTTP request to the FCM server with the body and headers
-        specified.
+        Build the payload data to be sent.
         Args:
-            body (nested dict): Body. Will be JSON-encoded.
-            headers (Headers): HTTP Headers.
+            n: Notification to build the payload for.
+            device (Device): Device information to which the constructed payload
+            will be sent.
 
         Returns:
-
+            JSON-compatible dict
         """
-        body_producer = FileBodyProducer(BytesIO(json.dumps(body).encode()))
+        data = {}
 
-        # we use the semaphore to actually limit the number of concurrent
-        # requests, since the HTTPConnectionPool will actually just lead to more
-        # requests being created but not pooled – it does not perform limiting.
-        with QUEUE_TIME_HISTOGRAM.time():
-            with PENDING_REQUESTS_GAUGE.track_inprogress():
-                await self.connection_semaphore.acquire()
+        if device.data:
+            data.update(device.data.get("default_payload", {}))
 
-        try:
-            with SEND_TIME_HISTOGRAM.time():
-                with ACTIVE_REQUESTS_GAUGE.track_inprogress():
-                    response = await self.http_agent.request(
-                        b"POST",
-                        GCM_URL,
-                        headers=Headers(headers),
-                        bodyProducer=body_producer,
-                    )
-                    response_text = (await readBody(response)).decode()
-        except Exception as exception:
-            raise TemporaryNotificationDispatchException(
-                "GCM request failure"
-            ) from exception
-        finally:
-            self.connection_semaphore.release()
-        return response, response_text
+        for attr in [
+            "event_id",
+            "type",
+            "sender",
+            "room_name",
+            "room_alias",
+            "membership",
+            "sender_display_name",
+            "content",
+            "room_id",
+        ]:
+            if hasattr(n, attr):
+                data[attr] = getattr(n, attr)
+                # Truncate fields to a sensible maximum length. If the whole
+                # body is too long, GCM will reject it.
+                if data[attr] is not None and len(data[attr]) > MAX_BYTES_PER_FIELD:
+                    data[attr] = data[attr][0:MAX_BYTES_PER_FIELD]
+
+        data["prio"] = "high"
+        if n.prio == "low":
+            data["prio"] = "normal"
+
+        if getattr(n, "counts", None):
+            data["unread"] = n.counts.unread
+            data["missed_calls"] = n.counts.missed_calls
+
+        return data
 
     async def _request_dispatch(self, n, log, body, headers, pushkeys, span):
         poke_start_time = time.time()
@@ -313,172 +449,43 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 f"Unknown GCM response code {response.code}"
             )
 
-    async def _dispatch_notification_unlimited(self, n, device, context):
-        log = NotificationLoggerAdapter(logger, {"request_id": context.request_id})
-
-        pushkeys = [
-            device.pushkey for device in n.devices if device.app_id == self.name
-        ]
-        # Resolve canonical IDs for all pushkeys
-
-        if pushkeys[0] != device.pushkey:
-            # Only send notifications once, to all devices at once.
-            return []
-
-        # The pushkey is kind of secret because you can use it to send push
-        # to someone.
-        # span_tags = {"pushkeys": pushkeys}
-        span_tags = {"gcm_num_devices": len(pushkeys)}
-
-        with self.sygnal.tracer.start_span(
-            "gcm_dispatch", tags=span_tags, child_of=context.opentracing_span
-        ) as span_parent:
-            reg_id_mappings = await self.canonical_reg_id_store.get_canonical_ids(
-                pushkeys
-            )
-
-            reg_id_mappings = {
-                reg_id: canonical_reg_id or reg_id
-                for (reg_id, canonical_reg_id) in reg_id_mappings.items()
-            }
-
-            inverse_reg_id_mappings = {v: k for (k, v) in reg_id_mappings.items()}
-
-            data = GcmPushkin._build_data(n, device)
-            headers = {
-                b"User-Agent": ["sygnal"],
-                b"Content-Type": ["application/json"],
-                b"Authorization": ["key=%s" % (self.api_key,)],
-            }
-
-            # count the number of remapped registration IDs in the request
-            span_parent.set_tag(
-                "gcm_num_remapped_reg_ids_used",
-                [k != v for (k, v) in reg_id_mappings.items()].count(True),
-            )
-
-            # TODO: Implement collapse_key to queue only one message per room.
-            failed = []
-
-            body = self.base_request_body.copy()
-            body["data"] = data
-            body["priority"] = "normal" if n.prio == "low" else "high"
-            body["notification"] = {
-                'title': 'New message',
-                'body': 'You received new message.',
-            }
-            content_obj = data.get('content')
-            if content_obj and content_obj.get('msgtype') == 'm.text':
-                body['notification']['body'] = content_obj.get('body')
-
-            if data.get('sender_display_name'):
-                body['notification']['title'] = f'{data.get("sender_display_name")} sent you new encrypted message'
-
-            if data.get('room_id'):
-                body['android'] = {
-                    'collapseKey': data.get('room_id')
-                }
-                body['apns'] = {
-                    'headers': {
-                        "apns-collapse-id": data.get('room_id'),
-                    }
-                }
-
-            for retry_number in range(0, MAX_TRIES):
-                mapped_pushkeys = [reg_id_mappings[pk] for pk in pushkeys]
-
-                if len(pushkeys) == 1:
-                    body["to"] = mapped_pushkeys[0]
-                else:
-                    body["registration_ids"] = mapped_pushkeys
-
-                log.info("Sending (attempt %i) => %r", retry_number, mapped_pushkeys)
-
-                try:
-                    span_tags = {"retry_num": retry_number}
-
-                    with self.sygnal.tracer.start_span(
-                        "gcm_dispatch_try", tags=span_tags, child_of=span_parent
-                    ) as span:
-                        new_failed, new_pushkeys = await self._request_dispatch(
-                            n, log, body, headers, mapped_pushkeys, span
-                        )
-                    pushkeys = new_pushkeys
-                    failed += [
-                        inverse_reg_id_mappings[canonical_pk]
-                        for canonical_pk in new_failed
-                    ]
-                    if len(pushkeys) == 0:
-                        break
-                except TemporaryNotificationDispatchException as exc:
-                    retry_delay = RETRY_DELAY_BASE * (2 ** retry_number)
-                    if exc.custom_retry_delay is not None:
-                        retry_delay = exc.custom_retry_delay
-
-                    log.warning(
-                        "Temporary failure, will retry in %d seconds",
-                        retry_delay,
-                        exc_info=True,
-                    )
-
-                    span_parent.log_kv(
-                        {"event": "temporary_fail", "retrying_in": retry_delay}
-                    )
-
-                    await twisted_sleep(
-                        retry_delay, twisted_reactor=self.sygnal.reactor
-                    )
-
-            if len(pushkeys) > 0:
-                log.info("Gave up retrying reg IDs: %r", pushkeys)
-            # Count the number of failed devices.
-            span_parent.set_tag("gcm_num_failed", len(failed))
-            return failed
-
-    @staticmethod
-    def _build_data(n, device):
+    async def _perform_http_request(self, body, headers):
         """
-        Build the payload data to be sent.
+        Perform an HTTP request to the FCM server with the body and headers
+        specified.
         Args:
-            n: Notification to build the payload for.
-            device (Device): Device information to which the constructed payload
-            will be sent.
+            body (nested dict): Body. Will be JSON-encoded.
+            headers (Headers): HTTP Headers.
 
         Returns:
-            JSON-compatible dict
+
         """
-        data = {}
+        body_producer = FileBodyProducer(BytesIO(json.dumps(body).encode()))
 
-        if device.data:
-            data.update(device.data.get("default_payload", {}))
+        # we use the semaphore to actually limit the number of concurrent
+        # requests, since the HTTPConnectionPool will actually just lead to more
+        # requests being created but not pooled – it does not perform limiting.
+        with QUEUE_TIME_HISTOGRAM.time():
+            with PENDING_REQUESTS_GAUGE.track_inprogress():
+                await self.connection_semaphore.acquire()
 
-        for attr in [
-            "event_id",
-            "type",
-            "sender",
-            "room_name",
-            "room_alias",
-            "membership",
-            "sender_display_name",
-            "content",
-            "room_id",
-        ]:
-            if hasattr(n, attr):
-                data[attr] = getattr(n, attr)
-                # Truncate fields to a sensible maximum length. If the whole
-                # body is too long, GCM will reject it.
-                if data[attr] is not None and len(data[attr]) > MAX_BYTES_PER_FIELD:
-                    data[attr] = data[attr][0:MAX_BYTES_PER_FIELD]
-
-        data["prio"] = "high"
-        if n.prio == "low":
-            data["prio"] = "normal"
-
-        if getattr(n, "counts", None):
-            data["unread"] = n.counts.unread
-            data["missed_calls"] = n.counts.missed_calls
-
-        return data
+        try:
+            with SEND_TIME_HISTOGRAM.time():
+                with ACTIVE_REQUESTS_GAUGE.track_inprogress():
+                    response = await self.http_agent.request(
+                        b"POST",
+                        GCM_URL,
+                        headers=Headers(headers),
+                        bodyProducer=body_producer,
+                    )
+                    response_text = (await readBody(response)).decode()
+        except Exception as exception:
+            raise TemporaryNotificationDispatchException(
+                "GCM request failure"
+            ) from exception
+        finally:
+            self.connection_semaphore.release()
+        return response, response_text
 
 
 class CanonicalRegIdStore(object):
