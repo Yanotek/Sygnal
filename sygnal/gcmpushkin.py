@@ -207,9 +207,13 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             # data=data,
             message = messaging.Message(
+                data={
+                    'room_id': data.get('room_id'),
+                    'room_name': data.get('room_name')
+                },
                 notification=messaging.Notification(),
                 android=messaging.AndroidConfig(
-                    collapse_key=data.get('room_id')
+                    collapse_key=data.get('room_id'),
                 ),
                 apns=messaging.APNSConfig(
                     headers={
@@ -217,6 +221,8 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                     }
                 )
             )
+
+            message.collapse_key = data.get('room_id')
 
             # TODO move to message --> body["priority"] = "normal" if n.prio == "low" else "high"
 
