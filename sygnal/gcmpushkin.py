@@ -205,6 +205,15 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 notification=messaging.Notification(),
                 android=messaging.AndroidConfig(
                     collapse_key=data.get("room_id"),
+                    notification=messaging.AndroidNotification(
+                        tag=data.get("room_id"),
+                        priority="normal",
+                        default_vibrate_timings=True,
+                        default_sound=True,
+                        default_light_settings=True,
+                        visibility="public",
+                    ),
+                    priority="normal",
                 ),
                 apns=messaging.APNSConfig(
                     headers={"apns-collapse-id": data.get("room_id")}
