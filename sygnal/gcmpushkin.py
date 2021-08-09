@@ -17,11 +17,11 @@
 import json
 import logging
 
+from firebase_admin import messaging
 from prometheus_client import Counter, Gauge, Histogram
 from twisted.enterprise.adbapi import ConnectionPool
 from twisted.internet.defer import DeferredSemaphore
 from twisted.web.client import HTTPConnectionPool
-from firebase_admin import messaging
 
 from sygnal.helper.context_factory import ClientTLSOptionsFactory
 from sygnal.helper.proxy.proxyagent_twisted import ProxyAgent
