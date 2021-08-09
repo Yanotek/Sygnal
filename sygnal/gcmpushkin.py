@@ -229,7 +229,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 if data.get("sender_display_name"):
                     message.notification.body = (
                         f'{data.get("sender_display_name")}'
-                        f' sent you new encrypted message'
+                        f" sent you new encrypted message"
                     )
                 else:
                     message.notification.body = "New encrypted message"
