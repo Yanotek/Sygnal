@@ -16,25 +16,16 @@
 # limitations under the License.
 import json
 import logging
-import time
-import firebase_admin
-from io import BytesIO
 
-from opentracing import logs, tags
 from prometheus_client import Counter, Gauge, Histogram
 from twisted.enterprise.adbapi import ConnectionPool
 from twisted.internet.defer import DeferredSemaphore
-from twisted.web.client import FileBodyProducer, HTTPConnectionPool, readBody
-from twisted.web.http_headers import Headers
+from twisted.web.client import HTTPConnectionPool
 from firebase_admin import messaging
 
-from sygnal.exceptions import (
-    NotificationDispatchException,
-    TemporaryNotificationDispatchException,
-)
 from sygnal.helper.context_factory import ClientTLSOptionsFactory
 from sygnal.helper.proxy.proxyagent_twisted import ProxyAgent
-from sygnal.utils import NotificationLoggerAdapter, json_decoder, twisted_sleep
+from sygnal.utils import NotificationLoggerAdapter
 
 from .exceptions import PushkinSetupException
 from .notifications import ConcurrencyLimitedPushkin
