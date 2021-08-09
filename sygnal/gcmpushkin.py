@@ -62,7 +62,7 @@ MAX_BYTES_PER_FIELD = 1024
 # The error codes that mean a registration ID will never
 # succeed and we should reject it upstream.
 # We include NotRegistered here too for good measure, even
-# though gcm-client 'helpfully' extracts these into a separate
+# though gcm-client "helpfully" extracts these into a separate
 # list.
 BAD_PUSHKEY_FAILURE_CODES = [
     "MissingRegistration",
@@ -73,7 +73,7 @@ BAD_PUSHKEY_FAILURE_CODES = [
 ]
 
 # Failure codes that mean the message in question will never
-# succeed, so don't retry, but the registration ID is fine
+# succeed, so don"t retry, but the registration ID is fine
 # so we should not reject it upstream.
 BAD_MESSAGE_FAILURE_CODES = ["MessageTooBig", "InvalidDataKey", "InvalidTtl"]
 
@@ -187,7 +187,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             data = GcmPushkin._build_data(n, device)
 
-            if not data.get('event_id'):
+            if not data.get("event_id"):
                 return []
 
             # count the number of remapped registration IDs in the request
@@ -199,43 +199,47 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             # data=data,
             message = messaging.Message(
                 data={
-                    'room_id': data.get('room_id'),
-                    'room_name': data.get('room_name')
+                    "room_id": data.get("room_id"),
+                    "room_name": data.get("room_name")
                 },
                 notification=messaging.Notification(),
                 android=messaging.AndroidConfig(
-                    collapse_key=data.get('room_id'),
+                    collapse_key=data.get("room_id"),
                 ),
                 apns=messaging.APNSConfig(
                     headers={
-                        'apns-collapse-id': data.get('room_id')
+                        "apns-collapse-id": data.get("room_id")
                     }
                 )
             )
 
-            message.collapse_key = data.get('room_id')
+            message.collapse_key = data.get("room_id")
 
             # TODO move to message
             # --> body["priority"] = "normal" if n.prio == "low" else "high"
 
-            content_obj = data.get('content')
-            if content_obj and content_obj.get('msgtype') == 'm.text':
-                if data.get('sender_display_name'):
-                    message.notification.body = f'{data.get("sender_display_name")}' \
-                                                f' wrote: {content_obj.get("body")}'
+            content_obj = data.get("content")
+            if content_obj and content_obj.get("msgtype") == "m.text":
+                if data.get("sender_display_name"):
+                    message.notification.body = (
+                        f'{data.get("sender_display_name")}'
+                        f' wrote: {content_obj.get("body")}'
+                    )
                 else:
-                    message.notification.body = content_obj.get('body')
+                    message.notification.body = content_obj.get("body")
             else:
-                if data.get('sender_display_name'):
-                    message.notification.body = f'{data.get("sender_display_name")}' \
-                                                f' sent you new encrypted message'
+                if data.get("sender_display_name"):
+                    message.notification.body = (
+                        f'{data.get("sender_display_name")}'
+                        f' sent you new encrypted message'
+                    )
                 else:
-                    message.notification.body = 'New encrypted message'
+                    message.notification.body = "New encrypted message"
 
-            if data.get('room_name') and data.get('room_name').startswith('@'):
-                message.notification.title = data.get('room_name')
+            if data.get("room_name") and data.get("room_name").startswith("@"):
+                message.notification.title = data.get("room_name")
             else:
-                message.notification.title = 'New message'
+                message.notification.title = "New message"
 
             mapped_push_keys = [reg_id_mappings[pk] for pk in pushkeys]
 
@@ -244,11 +248,11 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             else:
                 message.tokens = mapped_push_keys
 
-            log.info(f'Get message => {json.dumps(data)}')
+            log.info(f"Get message => {json.dumps(data)}")
 
             response = messaging.send(message)
 
-            print('Successfully sent message:', response)
+            print("Successfully sent message:", response)
 
             return []
 
