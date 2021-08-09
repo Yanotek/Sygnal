@@ -54,6 +54,7 @@ setup(
         "importlib_metadata",
         "pywebpush>=1.13.0",
         "py-vapid>=1.7.0",
+        "firebase-admin>=5.0.1",
     ],
     extras_require={
         "dev": [
