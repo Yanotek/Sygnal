@@ -200,17 +200,15 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             message = messaging.Message(
                 data={
                     "room_id": data.get("room_id"),
-                    "room_name": data.get("room_name")
+                    "room_name": data.get("room_name"),
                 },
                 notification=messaging.Notification(),
                 android=messaging.AndroidConfig(
                     collapse_key=data.get("room_id"),
                 ),
                 apns=messaging.APNSConfig(
-                    headers={
-                        "apns-collapse-id": data.get("room_id")
-                    }
-                )
+                    headers={"apns-collapse-id": data.get("room_id")}
+                ),
             )
 
             message.collapse_key = data.get("room_id")
