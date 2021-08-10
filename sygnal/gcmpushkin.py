@@ -220,6 +220,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                         aps=messaging.Aps(
                             sound="default",
                             content_available=1,
+                            thread_id=data.get("room_id"),
                         )
                     ),
                 ),
