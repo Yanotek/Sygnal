@@ -209,7 +209,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                         tag=data.get("room_id"),
                         priority="default",
                         default_vibrate_timings=True,
-                        default_sound=True,
+                        sound="default",
                         default_light_settings=True,
                         visibility="public",
                     ),
