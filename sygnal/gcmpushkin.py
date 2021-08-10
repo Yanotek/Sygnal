@@ -207,11 +207,11 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                     collapse_key=data.get("room_id"),
                     notification=messaging.AndroidNotification(
                         tag=data.get("room_id"),
-                        priority="2",
+                        priority="high",
                         default_vibrate_timings=True,
                         sound="default",
                         default_light_settings=True,
-                        visibility="1",
+                        visibility="public",
                     ),
                     priority="normal",
                 ),
