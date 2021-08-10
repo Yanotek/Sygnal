@@ -216,7 +216,13 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                     priority="normal",
                 ),
                 apns=messaging.APNSConfig(
-                    headers={"apns-collapse-id": data.get("room_id")}
+                    headers={"apns-collapse-id": data.get("room_id")},
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(
+                            sound="default",
+                            content_available=1,
+                        )
+                    ),
                 ),
             )
 
