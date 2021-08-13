@@ -187,6 +187,9 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             data = GcmPushkin._build_data(n, device)
 
+            if not data.get("event_id"):
+                return []
+
             # count the number of remapped registration IDs in the request
             span_parent.set_tag(
                 "gcm_num_remapped_reg_ids_used",
