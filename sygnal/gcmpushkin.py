@@ -231,10 +231,10 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 if data.get("sender_display_name"):
                     message.notification.body = (
                         f'{data.get("sender_display_name")}'
-                        f" send picture"
+                        f" sent picture"
                     )
                 else:
-                    message.notification.body = content_obj.get("body")
+                    message.notification.body = "New picture"
             elif content_obj and content_obj.get("msgtype") == "m.text":
                 if data.get("sender_display_name"):
                     message.notification.body = (
