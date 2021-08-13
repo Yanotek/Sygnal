@@ -213,7 +213,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                         default_light_settings=True,
                         visibility="public",
                     ),
-                    priority="normal",
+                    priority="normal" if n.prio == "low" else "high",
                 ),
                 apns=messaging.APNSConfig(
                     payload=messaging.APNSPayload(
@@ -226,26 +226,35 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 ),
             )
 
-            message.collapse_key = data.get("room_id")
-
-            # TODO move to message
-            # --> body["priority"] = "normal" if n.prio == "low" else "high"
-
             content_obj = data.get("content")
-            if content_obj and content_obj.get("msgtype") == "m.text":
+            if content_obj and content_obj.get("msgtype") == "m.image":
                 if data.get("sender_display_name"):
                     message.notification.body = (
                         f'{data.get("sender_display_name")}'
-                        f' wrote: {content_obj.get("body")}'
+                        f" send picture"
+                    )
+                else:
+                    message.notification.body = content_obj.get("body")
+            elif content_obj and content_obj.get("msgtype") == "m.text":
+                if data.get("sender_display_name"):
+                    message.notification.body = (
+                        f'{data.get("sender_display_name")}'
+                        f' : {content_obj.get("body")}'
                     )
                 else:
                     message.notification.body = content_obj.get("body")
             else:
                 if data.get("sender_display_name"):
-                    message.notification.body = (
-                        f'{data.get("sender_display_name")}'
-                        f" sent you new encrypted message"
-                    )
+                    if data.get("room_name") and data.get("room_name").startswith("@"):
+                        message.notification.body = (
+                            f'{data.get("sender_display_name")}'
+                            f" sent new encrypted message"
+                        )
+                    else:
+                        message.notification.body = (
+                            f'{data.get("sender_display_name")}'
+                            f" sent you new encrypted message"
+                        )
                 else:
                     message.notification.body = "New encrypted message"
 
