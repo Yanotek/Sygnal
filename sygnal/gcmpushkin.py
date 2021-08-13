@@ -231,6 +231,15 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             else:
                 message.notification.body = ""
 
+            if data.get("room_name") and data.get("room_name").startswith("@"):
+                message.notification.title = data.get("room_name")
+            else:
+                if data.get("sender_display_name"):
+                    message.notification.title = data.get("sender_display_name")
+                    data["sender_display_name"] = None
+                else:
+                    message.notification.title = "New message"
+
             content_obj = data.get("content")
             if content_obj and content_obj.get("msgtype") == "m.image":
                 if data.get("sender_display_name"):
@@ -255,11 +264,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                         message.notification.body += f" sent you new encrypted message"
                 else:
                     message.notification.body = "New encrypted message"
-
-            if data.get("room_name") and data.get("room_name").startswith("@"):
-                message.notification.title = data.get("room_name")
-            else:
-                message.notification.title = "New message"
 
             mapped_push_keys = [reg_id_mappings[pk] for pk in pushkeys]
 
