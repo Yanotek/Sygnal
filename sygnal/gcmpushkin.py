@@ -226,35 +226,33 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 ),
             )
 
+            if data.get("sender_display_name"):
+                message.notification.body = data.get("sender_display_name")
+            else:
+                message.notification.body = ""
+
             content_obj = data.get("content")
             if content_obj and content_obj.get("msgtype") == "m.image":
                 if data.get("sender_display_name"):
-                    message.notification.body = (
-                        f'{data.get("sender_display_name")}'
-                        f" sent picture"
-                    )
+                    message.notification.body += " sent picture"
                 else:
                     message.notification.body = "New picture"
             elif content_obj and content_obj.get("msgtype") == "m.text":
                 if data.get("sender_display_name"):
-                    message.notification.body = (
-                        f'{data.get("sender_display_name")}'
-                        f': {content_obj.get("body")}'
-                    )
+                    message.notification.body += f': {content_obj.get("body")}'
                 else:
                     message.notification.body = content_obj.get("body")
+            elif content_obj and content_obj.get("msgtype") == "m.file":
+                if data.get("sender_display_name"):
+                    message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
+                else:
+                    message.notification.body = f'📎 {content_obj.get("pbody").get("name")}'
             else:
                 if data.get("sender_display_name"):
                     if data.get("room_name") and data.get("room_name").startswith("@"):
-                        message.notification.body = (
-                            f'{data.get("sender_display_name")}'
-                            f" sent new encrypted message"
-                        )
+                        message.notification.body += f" sent new encrypted message"
                     else:
-                        message.notification.body = (
-                            f'{data.get("sender_display_name")}'
-                            f" sent you new encrypted message"
-                        )
+                        message.notification.body += f" sent you new encrypted message"
                 else:
                     message.notification.body = "New encrypted message"
 
