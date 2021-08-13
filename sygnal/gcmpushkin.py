@@ -187,85 +187,15 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             data = GcmPushkin._build_data(n, device)
 
-            if not data.get("event_id"):
-                return []
-
             # count the number of remapped registration IDs in the request
             span_parent.set_tag(
                 "gcm_num_remapped_reg_ids_used",
                 [k != v for (k, v) in reg_id_mappings.items()].count(True),
             )
 
-            # data=data,
-            message = messaging.Message(
-                data={
-                    "room_id": data.get("room_id"),
-                    "room_name": data.get("room_name"),
-                },
-                notification=messaging.Notification(),
-                android=messaging.AndroidConfig(
-                    collapse_key=data.get("room_id"),
-                    notification=messaging.AndroidNotification(
-                        tag=data.get("room_id"),
-                        priority="high",
-                        default_vibrate_timings=True,
-                        sound="default",
-                        default_light_settings=True,
-                        visibility="public",
-                    ),
-                    priority="normal" if n.prio == "low" else "high",
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
-                            sound="default",
-                            content_available=1,
-                            thread_id=data.get("room_id"),
-                        )
-                    ),
-                ),
-            )
-
-            if data.get("sender_display_name"):
-                message.notification.body = data.get("sender_display_name")
-            else:
-                message.notification.body = ""
-
-            if data.get("room_name") and data.get("room_name").startswith("@"):
-                message.notification.title = data.get("room_name")
-            else:
-                if data.get("sender_display_name"):
-                    message.notification.title = data.get("sender_display_name")
-                    data["sender_display_name"] = None
-                else:
-                    message.notification.title = "New message"
-
-            content_obj = data.get("content")
-            if content_obj and content_obj.get("msgtype") == "m.image":
-                if data.get("sender_display_name"):
-                    message.notification.body += " sent picture"
-                else:
-                    message.notification.body = "New picture"
-            elif content_obj and content_obj.get("msgtype") == "m.text":
-                if data.get("sender_display_name"):
-                    message.notification.body += f': {content_obj.get("body")}'
-                else:
-                    message.notification.body = content_obj.get("body")
-            elif content_obj and content_obj.get("msgtype") == "m.file":
-                if data.get("sender_display_name"):
-                    message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
-                else:
-                    message.notification.body = f'📎 {content_obj.get("pbody").get("name")}'
-            else:
-                if data.get("sender_display_name"):
-                    if data.get("room_name") and data.get("room_name").startswith("@"):
-                        message.notification.body += f" sent new encrypted message"
-                    else:
-                        message.notification.body += f" sent you new encrypted message"
-                else:
-                    message.notification.body = "New encrypted message"
-
             mapped_push_keys = [reg_id_mappings[pk] for pk in pushkeys]
+
+            message = GcmPushkin._build_message(data, n.prio)
 
             if len(pushkeys) == 1:
                 message.token = mapped_push_keys[0]
@@ -324,6 +254,97 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             data["missed_calls"] = n.counts.missed_calls
 
         return data
+
+    @staticmethod
+    def _build_message(data, prio):
+        if not data.get("event_id"):
+            message = messaging.Message(
+                android=messaging.AndroidConfig(
+                    notification=messaging.AndroidNotification(
+                        notification_count=10,
+                    ),
+                ),
+                apns=messaging.APNSConfig(
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(
+                            badge=10,
+                        )
+                    ),
+                ),
+            )
+
+            return message
+
+        # data=data,
+        message = messaging.Message(
+            data={
+                "room_id": data.get("room_id"),
+                "room_name": data.get("room_name"),
+            },
+            notification=messaging.Notification(),
+            android=messaging.AndroidConfig(
+                collapse_key=data.get("room_id"),
+                notification=messaging.AndroidNotification(
+                    tag=data.get("room_id"),
+                    priority="high",
+                    default_vibrate_timings=True,
+                    sound="default",
+                    default_light_settings=True,
+                    visibility="public",
+                ),
+                priority="normal" if prio == "low" else "high",
+            ),
+            apns=messaging.APNSConfig(
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(
+                        sound="default",
+                        content_available=1,
+                        thread_id=data.get("room_id"),
+                    )
+                ),
+            ),
+        )
+
+        if data.get("sender_display_name"):
+            message.notification.body = data.get("sender_display_name")
+        else:
+            message.notification.body = ""
+
+        if data.get("room_name") and data.get("room_name").startswith("@"):
+            message.notification.title = data.get("room_name")
+        else:
+            if data.get("sender_display_name"):
+                message.notification.title = data.get("sender_display_name")
+                data["sender_display_name"] = None
+            else:
+                message.notification.title = "New message"
+
+        content_obj = data.get("content")
+        if content_obj and content_obj.get("msgtype") == "m.image":
+            if data.get("sender_display_name"):
+                message.notification.body += " sent picture"
+            else:
+                message.notification.body = "New picture"
+        elif content_obj and content_obj.get("msgtype") == "m.text":
+            if data.get("sender_display_name"):
+                message.notification.body += f': {content_obj.get("body")}'
+            else:
+                message.notification.body = content_obj.get("body")
+        elif content_obj and content_obj.get("msgtype") == "m.file":
+            if data.get("sender_display_name"):
+                message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
+            else:
+                message.notification.body = f'📎 {content_obj.get("pbody").get("name")}'
+        else:
+            if data.get("sender_display_name"):
+                if data.get("room_name") and data.get("room_name").startswith("@"):
+                    message.notification.body += f" sent new encrypted message"
+                else:
+                    message.notification.body += f" sent you new encrypted message"
+            else:
+                message.notification.body = "New encrypted message"
+
+        return message
 
 
 class CanonicalRegIdStore(object):
