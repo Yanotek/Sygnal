@@ -257,23 +257,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
     @staticmethod
     def _build_message(data, prio):
-        if not data.get("event_id"):
-            message = messaging.Message(
-                android=messaging.AndroidConfig(
-                    notification=messaging.AndroidNotification(
-                        notification_count=10,
-                    ),
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
-                            badge=10,
-                        )
-                    ),
-                ),
-            )
-
-            return message
 
         # data=data,
         message = messaging.Message(
@@ -285,6 +268,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             android=messaging.AndroidConfig(
                 collapse_key=data.get("room_id"),
                 notification=messaging.AndroidNotification(
+                    notification_count=data.get("unread"),
                     tag=data.get("room_id"),
                     priority="high",
                     default_vibrate_timings=True,
@@ -300,6 +284,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                         sound="default",
                         content_available=1,
                         thread_id=data.get("room_id"),
+                        badge=data.get("unread"),
                     )
                 ),
             ),
