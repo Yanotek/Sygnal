@@ -299,10 +299,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         if data.get("sender_display_name"):
             sender_display_name = data.get("sender_display_name")
 
-            result = re.findall(r'@\w+:(\w+)', sender_display_name)
-            if result:
-                sender_display_name = result[0]
-
         message.notification.body = sender_display_name
 
         if data.get("room_name") and data.get("room_name").startswith("@"):
@@ -321,10 +317,12 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             else:
                 message.notification.body = "New picture"
         elif content_obj and content_obj.get("msgtype") == "m.text":
+            textContent = re.sub(r"@\w+:(\w+)", GcmPushkin._regex_sender_name, content_obj.get("body"))
+
             if data.get("sender_display_name"):
-                message.notification.body += f': {content_obj.get("body")}'
+                message.notification.body += f': {textContent}'
             else:
-                message.notification.body = content_obj.get("body")
+                message.notification.body = textContent
         elif content_obj and content_obj.get("msgtype") == "m.file":
             if data.get("sender_display_name"):
                 message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
@@ -340,6 +338,11 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 message.notification.body = "New encrypted message"
 
         return message
+
+    @staticmethod
+    def _regex_sender_name(match_obj):
+        if match_obj.group(1) is not None:
+            return '@' + match_obj.group(1)
 
 
 class CanonicalRegIdStore(object):
