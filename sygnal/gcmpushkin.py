@@ -16,6 +16,7 @@
 # limitations under the License.
 import json
 import logging
+import re
 
 from firebase_admin import messaging
 from prometheus_client import Counter, Gauge, Histogram
@@ -293,16 +294,22 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             ),
         )
 
+        sender_display_name = ""
+
         if data.get("sender_display_name"):
-            message.notification.body = data.get("sender_display_name")
-        else:
-            message.notification.body = ""
+            sender_display_name = data.get("sender_display_name")
+
+            result = re.findall(r'@\w+:(\w+)', sender_display_name)
+            if result:
+                sender_display_name = result[0]
+
+        message.notification.body = sender_display_name
 
         if data.get("room_name") and data.get("room_name").startswith("@"):
             message.notification.title = data.get("room_name")
         else:
             if data.get("sender_display_name"):
-                message.notification.title = data.get("sender_display_name")
+                message.notification.title = sender_display_name
                 data["sender_display_name"] = None
             else:
                 message.notification.title = "New message"
