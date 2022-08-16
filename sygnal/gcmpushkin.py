@@ -328,6 +328,11 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
             else:
                 message.notification.body = f'📎 {content_obj.get("pbody").get("name")}'
+        elif content_obj and content_obj.get("msgtype") == "m.audio":
+            if data.get("sender_display_name"):
+                message.notification.body += " sent new voice message"
+            else:
+                message.notification.body += " sent you new voice message"
         else:
             if data.get("sender_display_name"):
                 if data.get("room_name") and data.get("room_name").startswith("@"):
