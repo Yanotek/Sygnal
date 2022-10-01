@@ -311,6 +311,12 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 message.notification.title = "New message"
 
         content_obj = data.get("content")
+
+        relates_to = content_obj.get("m.relates_to")
+        rel_type = relates_to.get("rel_type") if relates_to else None
+        is_replaced = rel_type == "m.replace"
+        # isEncrypted = data.get("m.room.encrypted")
+
         if content_obj and content_obj.get("msgtype") == "m.image":
             if data.get("sender_display_name"):
                 message.notification.body += " sent picture"
@@ -323,6 +329,9 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 message.notification.body += f': {textContent}'
             else:
                 message.notification.body = textContent
+
+            if is_replaced:
+                message.notification.body += ' (edited)'
         elif content_obj and content_obj.get("msgtype") == "m.file":
             if data.get("sender_display_name"):
                 message.notification.body += f' 📎 {content_obj.get("pbody").get("name")}'
@@ -335,12 +344,17 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
                 message.notification.body += " sent you new voice message"
         else:
             if data.get("sender_display_name"):
-                if data.get("room_name") and data.get("room_name").startswith("@"):
+                if (is_replaced):
+                    message.notification.body += f" edited the message"
+                elif data.get("room_name") and data.get("room_name").startswith("@"):
                     message.notification.body += f" sent new encrypted message"
                 else:
                     message.notification.body += f" sent you new encrypted message"
             else:
-                message.notification.body = "New encrypted message"
+                if (is_replaced):
+                    message.notification.body = "User edited the message"
+                else:
+                    message.notification.body = "New encrypted message"
 
         return message
 
