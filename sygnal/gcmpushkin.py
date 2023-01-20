@@ -237,7 +237,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             "sender",
             "room_name",
             "room_alias",
-            # "call_id",
+            "call_id",
             "membership",
             "sender_display_name",
             "content",
@@ -268,7 +268,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             data={
                 "room_id": data.get("room_id"),
                 "room_name": data.get("room_name"),
-                # "call_id": data.get("call_id"),
+                "call_id": data.get("call_id"),
             },
             notification=messaging.Notification(),
             android=messaging.AndroidConfig(
@@ -320,7 +320,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         # isEncrypted = data.get("m.room.encrypted")
 
         if content_obj:
-            message.data.msg_type = content_obj.get("msgtype")
+            message.data["msg_type"] = content_obj.get("msgtype")
 
         if content_obj and content_obj.get("msgtype") == "m.image":
             if data.get("sender_display_name"):
