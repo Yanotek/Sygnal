@@ -326,7 +326,12 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         if data.get("call_id"):
             message.data["call_id"] = data.get("call_id")
 
-        if content_obj and content_obj.get("msgtype") == "m.image":
+        if data.get("type") and data.get("type") == "m.room.request_calls_access":
+            if data.get("sender_display_name"):
+                message.notification.body += " requests calls permission"
+            else:
+                message.notification.body = "The user requests calls permission"
+        elif content_obj and content_obj.get("msgtype") == "m.image":
             if data.get("sender_display_name"):
                 message.notification.body += " sent picture"
             else:
