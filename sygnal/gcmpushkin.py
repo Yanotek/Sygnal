@@ -318,8 +318,10 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         is_replaced = rel_type == "m.replace"
         # isEncrypted = data.get("m.room.encrypted")
 
-        if content_obj and content_obj.get("msgtype"):
-            message.data["msg_type"] = content_obj.get("msgtype")
+        if data.get("type"):
+            message.data["msg_type"] = data.get("type")
+        else:
+            message.data["msg_type"] = "Test"
 
         if data.get("call_id"):
             message.data["call_id"] = data.get("call_id")
