@@ -329,7 +329,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         if content_obj and content_obj.get("call_id"):
             message.data["call_id"] = content_obj.get("call_id")
 
-        if content_obj and content_obj.get("msgtype") == "m.call.invite":
+        if data.get("type") and data.get("type") == "m.call.invite":
             message.notification.body = "Incoming call"
         elif content_obj and content_obj.get("msgtype") == "m.image":
             if data.get("sender_display_name"):
