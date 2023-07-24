@@ -211,7 +211,10 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             log.info(f"Get message => {json.dumps(data)}")
 
-            response = messaging.send(message)
+            try:
+                response = messaging.send(message)
+            except Exception as e:
+                response = "error"
 
             print("Successfully sent message:", response)
 
