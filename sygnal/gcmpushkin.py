@@ -160,15 +160,12 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
     async def _dispatch_notification_unlimited(self, n, device, context):
         log = NotificationLoggerAdapter(logger, {"request_id": context.request_id})
 
-        log.info(f"Start dispatch inside gcmpushkin")
-
         pushkeys = [
             device.pushkey for device in n.devices if device.app_id == self.name
         ]
         # Resolve canonical IDs for all pushkeys
 
         if pushkeys[0] != device.pushkey:
-            log.info(f"Only send notifications once, to all devices at once. Return")
             # Only send notifications once, to all devices at once.
             return []
 
@@ -192,7 +189,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             data = GcmPushkin._build_data(n, device)
 
             if not data.get("event_id"):
-                log.info(f"Event id is empty")
                 return []
 
             # count the number of remapped registration IDs in the request
@@ -204,7 +200,6 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             mapped_push_keys = [reg_id_mappings[pk] for pk in pushkeys]
 
             if data.get("room_alias") and "/hidden" in data.get("room_alias"):
-                log.info(f"Room alias is hidden")
                 return []
 
             message = GcmPushkin._build_message(data, n.prio)

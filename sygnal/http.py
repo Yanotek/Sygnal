@@ -134,7 +134,6 @@ class V1NotifyHandler(Resource):
 
             try:
                 body = json_decoder.decode(request.content.read().decode("utf-8"))
-                log.info(f"New request, body: {body}")
             except Exception as exc:
                 msg = "Expected JSON request body"
                 log.warning(msg, exc_info=exc)
@@ -241,10 +240,6 @@ class V1NotifyHandler(Resource):
         try:
             rejected = []
 
-            log.info(
-                "Handle dispatch hello world"
-            )
-
             for d in notif.devices:
                 NOTIFS_RECEIVED_DEVICE_PUSH_COUNTER.inc()
 
@@ -261,7 +256,7 @@ class V1NotifyHandler(Resource):
                     continue
 
                 pushkin = found_pushkins[0]
-                log.info(
+                log.debug(
                     "Sending push to pushkin %s for app ID %s", pushkin.name, appid
                 )
 
