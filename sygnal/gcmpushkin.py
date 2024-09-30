@@ -191,7 +191,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
 
             data = GcmPushkin._build_data(n, device)
 
-            log.info(f"New Get message => {json.dumps(data)}")
+            log.info(f"New Get message => {json.dumps(n)}")
 
             if not data.get("event_id"):
                 log.info(f"Event id is empty")

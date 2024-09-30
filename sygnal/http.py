@@ -134,6 +134,7 @@ class V1NotifyHandler(Resource):
 
             try:
                 body = json_decoder.decode(request.content.read().decode("utf-8"))
+                log.info(f"New request, body: {body}")
             except Exception as exc:
                 msg = "Expected JSON request body"
                 log.warning(msg, exc_info=exc)
