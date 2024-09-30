@@ -240,6 +240,10 @@ class V1NotifyHandler(Resource):
         try:
             rejected = []
 
+            log.info(
+                "Handle dispatch hello world"
+            )
+
             for d in notif.devices:
                 NOTIFS_RECEIVED_DEVICE_PUSH_COUNTER.inc()
 
@@ -256,7 +260,7 @@ class V1NotifyHandler(Resource):
                     continue
 
                 pushkin = found_pushkins[0]
-                log.debug(
+                log.info(
                     "Sending push to pushkin %s for app ID %s", pushkin.name, appid
                 )
 

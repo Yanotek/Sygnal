@@ -160,6 +160,8 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
     async def _dispatch_notification_unlimited(self, n, device, context):
         log = NotificationLoggerAdapter(logger, {"request_id": context.request_id})
 
+        log.info(f"Start dispatch inside gcmpushkin")
+
         pushkeys = [
             device.pushkey for device in n.devices if device.app_id == self.name
         ]
