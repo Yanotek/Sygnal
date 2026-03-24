@@ -18,7 +18,8 @@ import json
 import logging
 import re
 
-from firebase_admin import messaging
+import firebase_admin
+from firebase_admin import credentials, messaging
 from prometheus_client import Counter, Gauge, Histogram
 from twisted.enterprise.adbapi import ConnectionPool
 from twisted.internet.defer import DeferredSemaphore
@@ -90,6 +91,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         "type",
         "api_key",
         "fcm_options",
+        "firebase_credentials",
         "max_connections",
     } | ConcurrencyLimitedPushkin.UNDERSTOOD_CONFIG_FIELDS
 
@@ -128,6 +130,23 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         self.api_key = self.get_config("api_key")
         if not self.api_key:
             raise PushkinSetupException("No API key set in config")
+
+        # Initialize a named Firebase app for this pushkin.
+        # If firebase_credentials is set, use that file;
+        # otherwise fall back to GOOGLE_APPLICATION_CREDENTIALS env var.
+        firebase_creds_path = self.get_config("firebase_credentials", None)
+        try:
+            if firebase_creds_path:
+                cred = credentials.Certificate(firebase_creds_path)
+                self.firebase_app = firebase_admin.initialize_app(cred, name=name)
+            else:
+                self.firebase_app = firebase_admin.initialize_app(name=name)
+            logger.info("Initialized Firebase app '%s' (credentials: %s)", name,
+                        firebase_creds_path or "default")
+        except ValueError:
+            # App with this name already exists (e.g. reloaded config)
+            self.firebase_app = firebase_admin.get_app(name)
+            logger.info("Reusing existing Firebase app '%s'", name)
 
         # Use the fcm_options config dictionary as a foundation for the body;
         # this lets the Sygnal admin choose custom FCM options
@@ -212,11 +231,12 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             log.info(f"Get message => {json.dumps(data)}")
 
             try:
-                response = messaging.send(message)
+                response = messaging.send(message, app=self.firebase_app)
             except Exception as e:
+                logger.error("Failed to send FCM message for app '%s': %s", self.name, e)
                 response = "error"
 
-            print("Successfully sent message:", response)
+            log.info("FCM send result for app '%s': %s", self.name, response)
 
             return []
 
