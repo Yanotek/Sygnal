@@ -336,7 +336,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             else:
                 message.notification.title = "New message"
 
-        content_obj = data.get("content")
+        content_obj = data.get("content") or {}
 
         relates_to = content_obj.get("m.relates_to")
         rel_type = relates_to.get("rel_type") if relates_to else None
