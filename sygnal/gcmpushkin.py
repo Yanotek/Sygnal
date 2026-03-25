@@ -299,7 +299,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             if v is not None:
                 fcm_data[k] = str(v)
 
-        fcm_data["msg_type"] = data.get("type", "m.room.message")
+        fcm_data["msg_type"] = str(data.get("type") or "m.room.message")
 
         content_obj = data.get("content") or {}
         if content_obj.get("msgtype"):
