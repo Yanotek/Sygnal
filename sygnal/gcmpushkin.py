@@ -220,7 +220,10 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             if data.get("room_alias") and "/hidden" in data.get("room_alias"):
                 return []
 
-            message = GcmPushkin._build_message(data, n.prio)
+            if self.api_key:
+                message = GcmPushkin._build_message(data, n.prio)
+            else:
+                message = GcmPushkin._build_data_only_message(data, n.prio)
 
             if len(pushkeys) == 1:
                 message.token = mapped_push_keys[0]
@@ -284,6 +287,38 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             data["missed_calls"] = n.counts.missed_calls
 
         return data
+
+    @staticmethod
+    def _build_data_only_message(data, prio):
+        """Build a data-only FCM message (no notification block).
+        Used for apps that handle display themselves (e.g. Forta Chat)."""
+        fcm_data = {}
+        for k in ("room_id", "room_name", "sender", "sender_display_name",
+                   "type", "event_id"):
+            v = data.get(k)
+            if v is not None:
+                fcm_data[k] = str(v)
+
+        fcm_data["msg_type"] = data.get("type", "m.room.message")
+
+        content_obj = data.get("content") or {}
+        if content_obj.get("msgtype"):
+            fcm_data["content_msgtype"] = str(content_obj["msgtype"])
+        if content_obj.get("call_id"):
+            fcm_data["call_id"] = str(content_obj["call_id"])
+        elif data.get("call_id"):
+            fcm_data["call_id"] = str(data["call_id"])
+
+        if data.get("unread") is not None:
+            fcm_data["unread"] = str(data["unread"])
+
+        return messaging.Message(
+            data=fcm_data,
+            android=messaging.AndroidConfig(
+                collapse_key=data.get("room_id"),
+                priority="normal" if prio == "low" else "high",
+            ),
+        )
 
     @staticmethod
     def _build_message(data, prio):
