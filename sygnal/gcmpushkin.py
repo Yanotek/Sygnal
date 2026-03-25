@@ -127,14 +127,13 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         self.db = sygnal.database
         self.canonical_reg_id_store = canonical_reg_id_store
 
-        self.api_key = self.get_config("api_key")
-        if not self.api_key:
-            raise PushkinSetupException("No API key set in config")
-
-        # Initialize a named Firebase app for this pushkin.
-        # If firebase_credentials is set, use that file;
-        # otherwise fall back to GOOGLE_APPLICATION_CREDENTIALS env var.
+        self.api_key = self.get_config("api_key", None)
         firebase_creds_path = self.get_config("firebase_credentials", None)
+
+        if not self.api_key and not firebase_creds_path:
+            raise PushkinSetupException(
+                "No api_key or firebase_credentials set in config"
+            )
         try:
             if firebase_creds_path:
                 cred = credentials.Certificate(firebase_creds_path)
