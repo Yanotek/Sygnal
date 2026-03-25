@@ -289,11 +289,14 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
     def _build_message(data, prio):
 
         # data=data,
+        # FCM v1 data payload requires all values to be strings
+        fcm_data = {}
+        for k in ("room_id", "room_name"):
+            if data.get(k) is not None:
+                fcm_data[k] = str(data[k])
+
         message = messaging.Message(
-            data={
-                "room_id": data.get("room_id"),
-                "room_name": data.get("room_name"),
-            },
+            data=fcm_data,
             notification=messaging.Notification(),
             android=messaging.AndroidConfig(
                 collapse_key=data.get("room_id"),
@@ -332,7 +335,7 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
         else:
             if data.get("sender_display_name"):
                 message.notification.title = sender_display_name
-                data["sender_display_name"] = None
+                data["sender_display_name"] = ""
             else:
                 message.notification.title = "New message"
 
