@@ -235,8 +235,25 @@ class GcmPushkin(ConcurrencyLimitedPushkin):
             try:
                 response = messaging.send(message, app=self.firebase_app)
             except Exception as e:
+                error_str = str(e)
                 logger.error("Failed to send FCM message for app '%s': %s", self.name, e)
-                response = "error"
+
+                # Reject pushkeys for unrecoverable token errors so Synapse
+                # removes the stale pusher and stops retrying.
+                reject_reasons = [
+                    "NotRegistered",
+                    "Requested entity was not found",
+                    "UNREGISTERED",
+                    "INVALID_ARGUMENT",
+                ]
+                if any(reason in error_str for reason in reject_reasons):
+                    logger.info(
+                        "Rejecting %d pushkeys for app '%s' due to: %s",
+                        len(pushkeys), self.name, error_str,
+                    )
+                    return pushkeys
+
+                return []
 
             log.info("FCM send result for app '%s': %s", self.name, response)
 
